@@ -7,20 +7,33 @@
 # assigning values meeting row, column and grid constraints.
 #
 class Sudoku
+
+  # Exception class
   class ConstraintError <RuntimeError; end
 
+  # Class methods
   class <<self
     def dup(grid)
-      newgrid = []
-      grid.each {|row| newgrid.append(row.dup)}
-      newgrid
+      grid.reduce([]) {|acc, row| acc.append(row.dup)}
     end
 
-    def print(grid)
-      grid.each do |row|
-        row.each {|v| v.nil? ? printf(" _ ") : printf("%2d ",  v)}
-        puts
+    def display(grid)
+      sz = grid.size
+      s_sz = Integer(Math.sqrt(sz))
+
+      puts '┌─────────┬─────────┬─────────┐'
+      sz.times do |i|
+        puts '├─────────┼─────────┼─────────┤' if i > 0 && i % s_sz == 0
+        s_sz.times do |j|
+          printf '│'
+          s_sz.times do |k; v|
+            v = grid[i][j * s_sz + k]
+            v.nil? ? printf(" _ ") : printf("%2d ",  v)
+          end
+        end
+        puts '│'
       end
+      puts '└─────────┴─────────┴─────────┘'
     end
   end
 
@@ -28,14 +41,12 @@ class Sudoku
 
   def initialize(sparse_matrix)
 
-    raise "Expecting nested Array" unless (sparse_matrix.class == Array &&
-                                           sparse_matrix[0].class == Array)
+    raise "Expecting nested Array" \
+      unless (sparse_matrix.class == Array &&
+              sparse_matrix[0].class == Array)
 
     # Grid, g[i][j], that will contain the solution.
     @g = self.class.dup(sparse_matrix)
-
-    # Grid columns
-    @c = g.transpose
 
     # Grid size (i.e., rows/columns in grid)
     @sz = g.size
@@ -43,160 +54,21 @@ class Sudoku
     # Sub-grid size (i.e., rows/columns in a sub-grid).
     @s_sz = Integer(Math.sqrt(sz))
 
-    # Row-indexed square sub-grids of size s_sz
-    @s = subgrids
-
     # Sanity check:
     begin
-      consistent?
       raise "Grid not square" unless sz > 0 && g.size == g[0].size
       raise "Invalid grid size" unless sz = s_sz ** 2
+      consistent?
     rescue ConstraintError => err
         puts "#{err.class}: #{err.message}"
         exit
     end
-  end
 
-  # Return array of square s_sz-sized sub-grids, s[i], of grid
-  # r[i][j], indexed by row order.
-  def subgrids()
-    sg = []
-    sz.times do |i; ri, ci, subgrid|
-      ri = (i / s_sz) * s_sz
-      ci = (i * s_sz) % sz
-      subgrid = []
-      ri.upto(ri + s_sz - 1) {|j| subgrid.append(g[j][ci .. ci + s_sz - 1])}
-      sg.append(subgrid)
-    end
-    sg
-  end
+    # Column view of grid
+    @c = g.transpose
 
-  def duplicates?(ary)
-    ary.empty? ? false : ary.tally.values.max > 1
-  end
-
-  # Ensure that initial values in grid are not duplicated in the same
-  # row, column or sub-grid.
-  def consistent?()
-    g.each do |row|
-      raise ConstraintError, 'duplicate row values' \
-        if duplicates?(row.reject(&:nil?))
-    end
-
-    # Columns, col[ci][ri], of grid g[ri][ci].
-    g.transpose.each do |col|
-      raise ConstraintError, 'duplicate column values' \
-        if duplicates?(col.reject(&:nil?))
-    end
-
-    # Square sub-grids, s[i], of size s_sz, indexed by row order.
-    subgrids.each do |subgrid|
-      raise ConstraintError, 'duplicate sub-grid values' \
-        if duplicates?(subgrid.flatten.reject(&:nil?))
-    end
-  end
-
-  # For each point, g[i][j], of the grid, collect all values (i.e.,
-  # possible assignments) satisfying current row, column and sub-grid
-  # constraints by taking the intersection of the numbers missing from
-  # each of those.
-  def assignments()
-
-    # Collect missing numbers, m_in_r[i], in row, g[i].
-    m_in_r = []
-    sz.times {|i| m_in_r.append([*1 .. sz] - g[i].reject(&:nil?))}
-
-    # Collect missing numbers, m_in_c[i], in column, c[i].
-    m_in_c = []
-    sz.times {|i| m_in_c.append([*1 .. sz] - c[i].reject(&:nil?))}
-
-    # Collect missing numbers, m_in_s[i], in sub-grid, s[i].
-    m_in_s = []
-    s.each do |subgrid|
-      m_in_s.append([*1 .. sz] - subgrid.flatten.reject(&:nil?))
-    end
-
-    # For each point, collect the intersection of numbers missing from
-    # the corresponding row, column and grid. These are used to
-    # determine what value to assign to point.
-    a = Array.new(sz) {Array.new(sz) {Array.new}}
-    sz.times do |ri|
-      sz.times do |ci; si|
-
-        # Skip points already assigned values.
-        next if g[ri][ci]
-
-        si = (ri / s_sz) * s_sz + (ci / s_sz)
-        a[ri][ci] +=
-          m_in_r[ri].intersection(m_in_c[ci]).intersection(m_in_s[si])
-         if a[ri][ci].size == 0
-           raise ConstraintError, "Over-constrained: a[#{ri}][#{ci}].size == 0"
-        end
-      end
-    end
-    a
-  end
-
-  def apply_unique(a)
-
-    # Update grid, g[i][j], with constraints, a[i][j], that are
-    # unique, i.e., such that a[i][j].size == 1
-    sz.times do |ri|
-      sz.times do |ci; si, v|
-        if a[ri][ci].size == 1
-          v = a[ri][ci].pop
-          si = (ri / s_sz) * s_sz + (ci / s_sz)
-          if (g[ri].include?(v) ||
-              c[ci].include?(v) ||
-              s[si].flatten.include?(v))
-            raise ConstraintError,
-                  "Under-constrained: #{v} => g[#{ri}][#{ci}]: Not allowed"
-          else
-            g[ri][ci] = v
-
-            # Column and sub-grid don't reflect changes to grid,
-            # g[ri][ci], so update them manually in order to detect
-            # constraint errors.
-            c[ci][ri] = s[si][ri % s_sz][ci % s_sz] = v
-          end
-        end
-      end
-    end
-  end
-
-  def select_minimal(a)
-
-    # Among all points in grid, g[i, j], find the coordinates of the
-    # (first) point, m, with the fewest values that can be assigned to
-    # it.
-    m = [0, 0]
-    min = sz
-    sz.times do |ri|
-      sz.times do |ci|
-        if 0 < a[ri][ci].size && a[ri][ci].size < min
-          min = a[ri][ci].size
-          m = [ri, ci]
-        end
-      end
-    end
-    m
-  end
-
-  def apply_multiple(a, ri, ci)
-
-    # For each value, create a new Sudoku instance, variant, with the
-    # current state of the grid, g, and value applied. If assignment
-    # doesn't yield a solution, iteratively try the next value.
-
-    # Shuffle values, since order is significant.
-    a[ri][ci].shuffle.each do |n; variant|
-      variant = self.class.new(g)
-      variant.g[ri][ci] = n
-      if variant.solve
-        @g = self.class.dup(variant.g)
-        break
-      end
-    end
+    # Array of sub-grids - i.e., row-indexed sub-grids of size s_sz
+    @s = subgrids
   end
 
   def solve()
@@ -219,30 +91,146 @@ class Sudoku
       end
     end
 
-    # Next, find a minimal set, a[*m], of possible values.
+    # Next, find a minimal set, a[*m], of possible assignments.
     m = select_minimal(a = assignments)
     if ! m.empty?
 
-      # Iterate over values in the set.
-      apply_multiple(a, *m)
+      # Recursively apply values in minimal set.
+      apply_recursively(a, *m)
     end
     completed? ? g : nil
   end
 
-  def completed?
-    g.flatten.select(&:nil?).empty?
+  private
+
+  # subgrids: Returns array of square s_sz-sized sub-grids of
+  #           grid g indexed by row order.
+  def subgrids()
+    sz.times.reduce([]) do |ac, i; ri, ci|
+      ri = (i / s_sz) * s_sz
+      ci = (i * s_sz) % sz
+      ac.append((ri ... ri + s_sz).reduce([]) do |acc, j|
+                  acc.append(g[j][ci ... ci + s_sz])
+                end)
+    end
   end
 
-  def show_assignments()
-    assignments.each do |row|
-      row.each {|v| printf("%s ", v.inspect)}
-      puts
+  # duplicates?: Returns `true' if any non-nil value in ary occurs more
+  #     than once, otherwise `false'.
+  def duplicates?(ary)
+    ary.empty? ? false : ary.tally.values.max > 1
+  end
+
+  # consistent?: Ensures that initial values in grid g are not
+  #              duplicated in the same row, column or sub-grid.
+  def consistent?()
+    g.each do |row|
+      raise ConstraintError, 'duplicate row values' \
+        if duplicates?(row.reject(&:nil?))
     end
+
+    # Columns, col[ci][ri], of grid g[ri][ci].
+    g.transpose.each do |col|
+      raise ConstraintError, 'duplicate column values' \
+        if duplicates?(col.reject(&:nil?))
+    end
+
+    # Square sub-grids, s[i], of size s_sz, indexed by row order.
+    subgrids.each do |subgrid|
+      raise ConstraintError, 'duplicate sub-grid values' \
+        if duplicates?(subgrid.flatten.reject(&:nil?))
+    end
+  end
+
+  # assignments: For each point in grid g, collects all values (i.e.,
+  #     possible assignments) satisfying current row, column and
+  #     sub-grid constraints by taking the intersection of the numbers
+  #     missing from each of those.
+  def assignments()
+
+    # Collect missing numbers, rc[i], in row g[i].
+    rc = sz.times.reduce([]) do |acc, i|
+      acc.append([*1 .. sz] - g[i].reject(&:nil?))
+    end
+
+    # Collect missing numbers, cc[i], in column c[i].
+    cc = sz.times.reduce([]) do |acc, i|
+      acc.append([*1 .. sz] - c[i].reject(&:nil?))
+    end
+
+    # Collect missing numbers, sc[i], in sub-grid s[i].
+    sc = s.reduce([]) do |acc, subgrid|
+      acc.append([*1 .. sz] - subgrid.flatten.reject(&:nil?))
+    end
+
+    # For each point without a value, collect the intersection, a, of
+    # numbers missing from the corresponding row, column and grid.
+    # These are used to determine what value to assign to that point.
+    # For points with values, the associated assignments array is empty.
+    sz.times.reduce([]) do |ac, ri|
+      ac.append(sz.times.reduce([]) do |acc, ci; si, a|
+                   next acc.append([]) unless g[ri][ci].nil?
+                   si = (ri / s_sz) * s_sz + (ci / s_sz)
+                   a = rc[ri] & cc[ci] & sc[si]
+                   raise ConstraintError, "Over-constrained: assignments[#{ri}][#{ci}].empty?" \
+                     if a.empty?
+                   acc.append(a)
+                end)
+    end
+  end
+
+  # apply_unique: Updates grid g with values in constraints array a
+  #     that are unique, i.e., such that a[i][j].size == 1
+  def apply_unique(a)
+    sz.times do |ri|
+      sz.times do |ci; si, v|
+        next unless a[ri][ci].size == 1
+        v = a[ri][ci].pop
+        si = (ri / s_sz) * s_sz + (ci / s_sz)
+        raise ConstraintError, "Under-constrained: #{v} => g[#{ri}][#{ci}]: Not allowed" \
+          if (g[ri] + c[ci] + s[si].flatten).include?(v)
+        g[ri][ci] = c[ci][ri] = s[si][ri % s_sz][ci % s_sz] = v
+      end
+    end
+  end
+
+  # select_minimal: Finds the coordinates of the (first) point, m, in g
+  #     with the fewest values that can be assigned to it.
+  def select_minimal(a)
+    min = sz + 1
+    sz.times.reduce([]) do |ac, ri; m|
+      m = sz.times.reduce([]) do |acc, ci|
+        next acc unless (0 < a[ri][ci].size && a[ri][ci].size < min)
+        min = a[ri][ci].size
+        [ri, ci]
+      end
+      m.empty? ? ac : m
+    end
+  end
+
+  # apply_recursively: For each value in a[ri][ci] (a candidate for
+  #     assignment to g[ri][ci]), creates a new Sudoku instance,
+  #     variant, from the current state of the grid g and applies
+  #     value to variant.g[ri][ci] until a solution is reached.
+  def apply_recursively(a, ri, ci)
+    a[ri][ci].shuffle.each do |n; variant|
+      variant = self.class.new(g)
+      variant.g[ri][ci] = n
+      if variant.solve
+        @g = self.class.dup(variant.g)
+        break
+      end
+    end
+  end
+
+  # completed?: Returns true if grid g does not contain any nil values,
+  #     otherwise false.
+  def completed?
+    g.flatten.select(&:nil?).empty?
   end
 end
 
 if __FILE__ == $0
-
 
   # g = [
   #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
@@ -254,6 +242,18 @@ if __FILE__ == $0
   #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
   #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
   #   [nil, nil, nil, nil, nil, nil, nil, nil, nil]
+  # ]
+
+  # g = [
+  #   [ 2,   nil, nil, nil, 5,   nil, nil, nil, 3 ],
+  #   [ nil, nil, 5,   nil, nil, 1,   nil, nil, nil ],
+  #   [ nil, 1,   nil, 4,   nil, nil, 5,   nil, 8 ],
+  #   [ 3,   nil, nil, nil, 6,   nil, nil, 5,   nil ],
+  #   [ nil, nil, nil, 7,   nil, nil, 4,   nil, nil ],
+  #   [ nil, nil, 2,   nil, 3,   nil, nil, 1,   7 ],
+  #   [ nil, 5,   nil, nil, nil, 7,   2,   nil, nil ],
+  #   [ 6,   nil, 4,   nil, nil, nil, nil, 8,   nil ],
+  #   [ nil, 9,   nil, 5,   nil, 8,   nil, nil, nil ]
   # ]
 
   g = [
@@ -280,16 +280,11 @@ if __FILE__ == $0
   exit if s.nil?
 
   puts "Given:"
-  Sudoku.print(s.g)
-
-  if VERBOSE
-    puts "Initial assignments:"
-    s.show_assignments
-  end
+  Sudoku.display(s.g)
 
   if s.solve
     puts "Solution:"
-    Sudoku.print(s.g)
+    Sudoku.display(s.g)
   else
     puts "No solution found 😧"
   end
