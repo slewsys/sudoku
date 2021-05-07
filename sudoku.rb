@@ -17,8 +17,8 @@ class Sudoku
       grid.reduce([]) {|acc, row| acc.append(row.dup)}
     end
 
-    def display(grid)
-      sz = grid.size
+    def display(unsolved_grid, solved_grid)
+      sz = solved_grid.size
       s_sz = Integer(Math.sqrt(sz))
 
       puts '┌─────────┬─────────┬─────────┐'
@@ -27,8 +27,10 @@ class Sudoku
         s_sz.times do |j|
           printf '│'
           s_sz.times do |k; v|
-            v = grid[i][j * s_sz + k]
-            v.nil? ? printf(" _ ") : printf("%2d ",  v)
+            u = unsolved_grid[i][j * s_sz + k]
+            v = solved_grid[i][j * s_sz + k]
+            v.nil? ? printf(" _ ") :
+              printf(u == v ? "\e[1;97m%2d\e[0;37m " : "%2d ",  v)
           end
         end
         puts '│'
@@ -232,17 +234,17 @@ end
 
 if __FILE__ == $0
 
-  # g = [
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil],
-  #   [nil, nil, nil, nil, nil, nil, nil, nil, nil]
-  # ]
+  gnul = [
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil],
+    [nil, nil, nil, nil, nil, nil, nil, nil, nil]
+  ]
 
   # g = [
   #   [ 2,   nil, nil, nil, 5,   nil, nil, nil, 3 ],
@@ -280,11 +282,11 @@ if __FILE__ == $0
   exit if s.nil?
 
   puts "Given:"
-  Sudoku.display(s.g)
+  Sudoku.display(gnul, s.g)
 
   if s.solve
     puts "Solution:"
-    Sudoku.display(s.g)
+    Sudoku.display(g, s.g)
   else
     puts "No solution found 😧"
   end
